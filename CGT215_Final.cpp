@@ -12,7 +12,10 @@ using namespace std;
 using namespace sf;
 using namespace sfp;
 
-const float KB_SPEED = 0.45;
+const float KB_SPEED = 0.5;
+const float velocityIncreaseInterval = 15000;
+const float velocityIncrement = 0.025;
+float lastVelocityIncreaseTime= 0;
 
 void LoadTex(Texture& tex, string filename) {
     if (!tex.loadFromFile(filename)) {
@@ -20,7 +23,7 @@ void LoadTex(Texture& tex, string filename) {
     }
 }
 
-void MoveController(PhysicsSprite& Controller, int elapsedMS) {
+void MoveController(PhysicsRectangle& Controller, int elapsedMS) {
     if (Keyboard::isKeyPressed(Keyboard::Right)) {
         Vector2f newPos(Controller.getCenter());
         newPos.x = newPos.x + (KB_SPEED * elapsedMS);
@@ -44,20 +47,20 @@ int main()
     RenderWindow window(VideoMode(800, 800), "BreakIN");
     World world(Vector2f(0, 0));
     int score(0);
-    int arrows(5);
 
-    PhysicsSprite& controller = *new PhysicsSprite();
-    Texture controllerTex;
-    LoadTex(controllerTex, "images/controller.png");
-    controller.setTexture(controllerTex);
+    PhysicsRectangle controller;
+    controller.setSize(Vector2f(75, 15));
     Vector2f sz = controller.getSize();
     controller.setCenter(Vector2f(400,750 - (sz.y / 2)));
+    world.AddPhysicsBody(controller);
 
-    PhysicsSprite arrow;
-    Texture arrowTex;
-    LoadTex(arrowTex, "images/arrow.png");
-    arrow.setTexture(arrowTex);
-    bool drawingArrow(false);
+    // Create the ball
+    PhysicsCircle ball;
+    ball.setCenter(Vector2f(390, 620));
+    ball.setRadius(12);
+    world.AddPhysicsBody(ball);
+    bool ballRemoved = false;
+    ball.applyImpulse(Vector2f(0.1, -0.25));
 
     PhysicsRectangle top;
     top.setSize(Vector2f(800, 20));
@@ -87,33 +90,82 @@ int main()
     Texture redTex;
     LoadTex(redTex, "images/redblock.png");
     PhysicsShapeList<PhysicsSprite> redblocks;
-    for (int j(0); j <10; j++) {
-        for (int i(0); i < 10; i++) {
+    for (int j(0); j <9; j++) {
+        for (int i(0); i < 11; i++) {
             PhysicsSprite& redblock = redblocks.Create();
             redblock.setTexture(redTex);
             Vector2f sz = redblock.getSize();
-            redblock.setCenter(Vector2f((77.75 * i) + 50, 140+(25*j)));
+            redblock.setCenter(Vector2f((70 * i) + 50, 140+(30*j)));
             redblock.setStatic(true);
             world.AddPhysicsBody(redblock);
             redblock.onCollision =
-                [&drawingArrow, &world, &arrow, &redblock, &redblocks, &score, &left, &right]
+                [&world, &redblock, &redblocks, &score, &left, &right, &ball ,&ballRemoved]
                 (PhysicsBodyCollisionResult result) {
-                if (result.object2 == arrow) {
-                    drawingArrow = false;
-                    world.RemovePhysicsBody(arrow);
+                if (result.object2 == ball) {
                     world.RemovePhysicsBody(redblock);
                     redblocks.QueueRemove(redblock);
-                    score += 10;
+                    score += 1;
+                    Vector2f velocity = ball.getVelocity();
+                    ball.setVelocity(Vector2f(velocity.x, -velocity.y));
+                    if (score == 99) {
+                        world.RemovePhysicsBody(ball);
+                        ballRemoved = true;
+                    }
                 }
                 };
         }
     }
 
-    top.onCollision = [&drawingArrow, &world, &arrow]
+    top.onCollision = [ &world, &ball]
     (PhysicsBodyCollisionResult result) {
-        if (result.object2 == arrow) {
-            drawingArrow = false;
-            world.RemovePhysicsBody(arrow);
+        if (result.object2 == ball) {
+            Vector2f velocity = ball.getVelocity();
+            ball.setVelocity(Vector2f(velocity.x, -velocity.y));
+        }
+        };
+
+    right.onCollision = [&world, &ball]
+    (PhysicsBodyCollisionResult result) {
+        if (result.object2 == ball) {
+            Vector2f velocity = ball.getVelocity();
+            ball.setVelocity(Vector2f(-velocity.x, velocity.y));  
+        }
+        };
+
+    left.onCollision = [&world, &ball]
+    (PhysicsBodyCollisionResult result) {
+        if (result.object2 == ball) {
+            Vector2f velocity = ball.getVelocity();
+            ball.setVelocity(Vector2f(-velocity.x, velocity.y));  
+        }
+        };
+
+    bottom.onCollision = [&world, &ball , &ballRemoved]
+    (PhysicsBodyCollisionResult result) {
+        if (result.object2 == ball){
+            world.RemovePhysicsBody(ball);
+            ballRemoved = true;
+        }
+
+    };
+
+    controller.onCollision = [&world, &ball, &controller](PhysicsBodyCollisionResult result) {
+        if (result.object2 == ball) {
+            Vector2f velocity = ball.getVelocity();
+            Vector2f ballPos = ball.getCenter();
+            Vector2f controllerPos = controller.getCenter();
+            Vector2f controllerSize = controller.getSize();
+            float relativeHitPosition = ballPos.x - (controllerPos.x - controllerSize.x / 2);
+            float normalizedHitPosition = relativeHitPosition / (controllerSize.x / 2);
+            if (normalizedHitPosition < 0.5) {
+                ball.setVelocity(Vector2f(velocity.x - 0.1, -velocity.y));  
+            }
+            else if (normalizedHitPosition > 0.5) {
+                ball.setVelocity(Vector2f(velocity.x + 0.1, -velocity.y)); 
+            }
+            else {
+                ball.setVelocity(Vector2f(velocity.x, -velocity.y)); 
+            }
         }
         };
 
@@ -125,53 +177,43 @@ int main()
     Clock clock;
     Time lastTime(clock.getElapsedTime());
     Time currentTime(lastTime);
-    while ((arrows > 0) || drawingArrow) {
+    while (ballRemoved == false) {
         currentTime = clock.getElapsedTime();
         Time deltaTime = currentTime - lastTime;
         long deltaMS = deltaTime.asMilliseconds();
-        if (deltaMS > 9) {
+        if (deltaMS > 1) {
             lastTime = currentTime;
             world.UpdatePhysics(deltaMS);
             MoveController(controller, deltaMS);
-            if (Keyboard::isKeyPressed(Keyboard::Space) &&
-                !drawingArrow) {
-                drawingArrow = true;
-                arrows = arrows - 1;
-                arrow.setCenter(controller.getCenter());
-                arrow.setVelocity(Vector2f(0, -1));
-                world.AddPhysicsBody(arrow);
+            if (currentTime.asMilliseconds() - lastVelocityIncreaseTime >=velocityIncreaseInterval) {
+                Vector2f currentVelocity = ball.getVelocity();
+                ball.setVelocity(Vector2f(currentVelocity.x * (1 +velocityIncrement), currentVelocity.y * (1 +velocityIncrement)));
 
+                lastVelocityIncreaseTime = currentTime.asMilliseconds();
             }
             double yaxis(0);
             if (controller.getCenter().x < 50) {
                 yaxis = controller.getCenter().y;
                 controller.setCenter(Vector2f(50,yaxis));
             }
-            else if (-50+controller.getCenter().x + controller.getGlobalBounds().width > window.getSize().x) {
+            else if (-45+controller.getCenter().x + controller.getGlobalBounds().width > window.getSize().x) {
                 yaxis = controller.getCenter().y;
-                controller.setCenter(Vector2f((window.getSize().x - controller.getGlobalBounds().width + 50),yaxis));
+                controller.setCenter(Vector2f((window.getSize().x - controller.getGlobalBounds().width + 45),yaxis));
 
             }
                
             window.clear();
-            if (drawingArrow) {
-                window.draw(arrow);
-            }
             redblocks.DoRemovals();
             for (PhysicsShape& redblock : redblocks) {
                 window.draw((PhysicsSprite&)redblock);
             }
             window.draw(controller);
+            window.draw(ball);
             Text scoreText;
             scoreText.setString(to_string(score));
             scoreText.setFont(fnt);
             scoreText.setPosition(Vector2f(780 - GetTextSize(scoreText).x, 10));
             window.draw(scoreText);
-            Text arrowCountText;
-            arrowCountText.setString(to_string(arrows));
-            arrowCountText.setFont(fnt);
-            arrowCountText.setPosition(Vector2f(35 - GetTextSize(arrowCountText).x, 10));
-            window.draw(arrowCountText);
             Text BreakInText;
             BreakInText.setString("BREAKIN");
             BreakInText.setFont(fnt);
@@ -189,7 +231,12 @@ int main()
     window.display(); // this is needed to see the last frame
     window.clear(Color(0, 0, 0));
     Text gameOverText;
-    gameOverText.setString("GAME OVER");
+    if (score == 99) {
+        gameOverText.setString("YOU WIN");
+    }
+    else{
+        gameOverText.setString("GAME OVER");
+    }
     gameOverText.setFont(fnt);
     sz = GetTextSize(gameOverText);
     gameOverText.setPosition(400 - (sz.x / 2), 400 - (sz.y / 2));
@@ -199,62 +246,3 @@ int main()
 
 }
 
-
-// Run program: Ctrl + F5 or Debug > Start Without Debugging menu
-// Debug program: F5 or Debug > Start Debugging menu
-
-// Tips for Getting Started: 
-//   1. Use the Solution Explorer window to add/manage files
-//   2. Use the Team Explorer window to connect to source control
-//   3. Use the Output window to see build output and other messages
-//   4. Use the Error List window to view errors
-//   5. Go to Project > Add New Item to create new code files, or Project > Add Existing Item to add existing code files to the project
-//   6. In the future, to open this project again, go to File > Open > Project and select the .sln file
-
-
-/*
-#include <iostream>
-#include <SFML/Graphics.hpp>
-#include <SFPhysics.h>
-using namespace std;
-using namespace sf;
-using namespace sfp;
-int main()
-{
-    // Create our window and world with gravity 0,1
-    RenderWindow window(VideoMode(800, 600), "Bounce");
-    World world(Vector2f(0, 1));
-    // Create the ball
-    PhysicsCircle ball;
-    ball.setCenter(Vector2f(400, 300));
-    ball.setRadius(20);
-    world.AddPhysicsBody(ball);
-    // Create the floor
-    PhysicsRectangle floor;
-    floor.setSize(Vector2f(800, 20));
-    floor.setCenter(Vector2f(400, 590));
-    floor.setStatic(true);
-    world.AddPhysicsBody(floor);
-    int thudCount(0);
-    floor.onCollision = [&thudCount](PhysicsBodyCollisionResult result) {
-        cout << "thud " << thudCount << endl;
-        thudCount++;
-        };
-    Clock clock;
-    Time lastTime(clock.getElapsedTime());
-    while (true) {
-        // calculate MS since last frame
-        Time currentTime(clock.getElapsedTime());
-        Time deltaTime(currentTime - lastTime);
-        int deltaTimeMS(deltaTime.asMilliseconds());
-        if (deltaTimeMS > 0) {
-            world.UpdatePhysics(deltaTimeMS);
-            lastTime = currentTime;
-        }
-        window.clear(Color(0, 0, 0));
-        window.draw(ball);
-        window.draw(floor);
-        window.display();
-    }
-}
-*/
