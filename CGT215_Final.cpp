@@ -185,7 +185,7 @@ int main()
             lastTime = currentTime;
             world.UpdatePhysics(deltaMS);
             MoveController(controller, deltaMS);
-            if (currentTime.asMilliseconds() - lastVelocityIncreaseTime >=velocityIncreaseInterval) {
+            if ((currentTime.asMilliseconds() - lastVelocityIncreaseTime) >=velocityIncreaseInterval) {
                 Vector2f currentVelocity = ball.getVelocity();
                 ball.setVelocity(Vector2f(currentVelocity.x * (1 +velocityIncrement), currentVelocity.y * (1 +velocityIncrement)));
 
@@ -199,7 +199,6 @@ int main()
             else if (-45+controller.getCenter().x + controller.getGlobalBounds().width > window.getSize().x) {
                 yaxis = controller.getCenter().y;
                 controller.setCenter(Vector2f((window.getSize().x - controller.getGlobalBounds().width + 45),yaxis));
-
             }
                
             window.clear();
